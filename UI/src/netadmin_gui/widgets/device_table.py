@@ -1,116 +1,67 @@
 """
-Device Table - Main table view with status indicators.
+Device Table - Main table view with status indicators and sorting.
 
-Shows scanned devices with sortable columns and color-coded status:
-  🟢 GREEN = device was present AND still reachable
-  🔴 RED   = device was present but now unreachable (offline)
-  ⚪ NEUTRAL = brand new device (first time seen)
+Uses QTableWidget with native sortByColumn() — no custom model needed.
 """
 from PySide6.QtWidgets import (
-    QTableWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QComboBox, QHeaderView, QApplication, QLabel,
-    QTableWidgetItem,
+    QWidget, QVBoxLayout, QHBoxLayout,
+    QLineEdit, QComboBox, QLabel,
+    QTableWidget, QTableWidgetItem, QHeaderView,
 )
-from PySide6.QtGui import QColor, QIcon, QKeyEvent
-from PySide6.QtCore import Qt, Signal, QSortFilterProxyModel
-
-# ─── Status Indicator Delegate ─────────────────────────────────────────────
+from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal
 
 
-class StatusDelegate:
-    """Computes status colors and emojis."""
-
-    @staticmethod
-    def color(status):
-        """Return QColor for status."""
-        colors = {
-            "online": QColor("#27ae60"),
-            "unreachable": QColor("#e74c3c"),
-            "new": QColor("#95a5a6"),
-        }
-        return colors.get(status, QColor("#95a5a6"))
-
-    @staticmethod
-    def emoji(status):
-        """Return emoji string for status."""
-        emojis = {
-            "online": "●",
-            "unreachable": "●",
-            "new": "○",
-        }
-        return emojis.get(status, "○")
-
-    @staticmethod
-    def status_text(status):
-        """Return human-readable status text."""
-        texts = {
-            "online": "Online",
-            "unreachable": "Offline",
-            "new": "New",
-        }
-        return texts.get(status, status)
+# ─── Status helpers ─────────────────────────────────────────────────────────
 
 
-# ─── Proxy Model for Sorting/Filtering ─────────────────────────────────────
+def status_color(status):
+    return {
+        "online": QColor("#27ae60"),
+        "unreachable": QColor("#e74c3c"),
+        "new": QColor("#95a5a6"),
+    }.get(status, QColor("#95a5a6"))
 
 
-class DeviceProxyModel(QSortFilterProxyModel):
-    """Sorts and filters device data."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._filter_status = "all"
-
-    def set_filter_status(self, status):
-        self._filter_status = status
-        self.invalidateFilter()
-
-    def filterAcceptsRow(self, source_row, source_parent):
-        if self._filter_status == "all":
-            return True
-
-        idx = self.sourceModel().index(source_row, 0, source_parent)
-        # Status is in column 0 (status column)
-        status = self.sourceModel().data(idx, Qt.DisplayRole)
-        return status == self._filter_status
+def status_text(status):
+    return {
+        "online": "Online",
+        "unreachable": "Offline",
+        "new": "New",
+    }.get(status, status)
 
 
-# ─── Device Table Widget ───────────────────────────────────────────────────
+# ─── Device Table Widget ────────────────────────────────────────────────────
 
 
 class DeviceTable(QWidget):
-    """Main device table with status indicators, sorting, and filtering."""
-
-    device_selected = Signal(dict)  # Emitted when a row is clicked
-    device_double_clicked = Signal(dict)  # Emitted on double-click
+    device_selected = Signal(dict)
+    device_double_clicked = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
 
         # ── Filter bar ──
         filter_bar = QHBoxLayout()
 
-        # Search
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Search IP or hostname...")
+        self.search_input.setPlaceholderText("Search IP or hostname...")
         self.search_input.setMinimumWidth(200)
-        self.search_input.textChanged.connect(self._on_search_changed)
+        self.search_input.textChanged.connect(self._filter)
         filter_bar.addWidget(self.search_input)
 
-        # Status filter
         status_filter = QHBoxLayout()
         status_filter.addWidget(QLabel("Status:"))
         self.status_combo = QComboBox()
         self.status_combo.addItems(["All", "Online", "Offline", "New"])
-        self.status_combo.currentTextChanged.connect(self._on_status_filter_changed)
+        self.status_combo.currentTextChanged.connect(self._filter)
         status_filter.addWidget(self.status_combo)
         filter_bar.addLayout(status_filter)
         filter_bar.addStretch()
 
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
         layout.addLayout(filter_bar)
 
         # ── Table ──
@@ -124,6 +75,8 @@ class DeviceTable(QWidget):
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+
+        # Column widths
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 40)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -133,89 +86,93 @@ class DeviceTable(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
 
-        # Sort by clicking headers
-        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
-        self._sort_column = 1
-        self._sort_asc = True
+        # Sortable: header click toggles sort direction
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self.table.horizontalHeader().setSortIndicator(1, Qt.AscendingOrder)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_sort)
 
-        layout.addWidget(self.table)
-
-        # ── Proxy model ──
-        self.proxy = DeviceProxyModel()
-        self.proxy.setSourceModel(self.table.model())
-
-        # Connect row click
+        # Row click
         self.table.itemClicked.connect(self._on_row_clicked)
         self.table.itemDoubleClicked.connect(self._on_row_double_clicked)
 
-    def _on_header_clicked(self, column):
-        """Handle column header click for sorting."""
-        if column == 0:  # Skip status column sorting
+        layout.addWidget(self.table)
+
+        # Internal state for filtering
+        self._all_rows = []  # store all device dicts (or None to show all)
+
+    def _on_sort(self, column):
+        """Toggle sort direction on header click."""
+        if column == 0:  # Status column: not sortable
             return
-        if self._sort_column == column:
-            self._sort_asc = not self._sort_asc
+        header = self.table.horizontalHeader()
+        current = header.sortIndicatorSection()
+        order = header.sortIndicatorOrder()
+        if current == column:
+            order = Qt.DescendingOrder if order == Qt.AscendingOrder else Qt.AscendingOrder
         else:
-            self._sort_column = column
-            self._sort_asc = True
+            order = Qt.AscendingOrder
+        self.table.sortByColumn(column, order)
+        header.setSortIndicator(column, order)
 
-        self.table.horizontalHeader().setSortIndicator(column, Qt.AscendingOrder if self._sort_asc else Qt.DescendingOrder)
-        self.proxy.sort(column, Qt.AscendingOrder if self._sort_asc else Qt.DescendingOrder)
+    def _filter(self):
+        """Hide rows that don't match search/status filters."""
+        search = self.search_input.text().lower()
+        status = self.status_combo.currentText().lower()
 
-    def _on_search_changed(self, text):
-        """Filter table by search text."""
-        self.proxy.setFilterFixedString(text)
+        for row in range(self.table.rowCount()):
+            item_ip = self.table.item(row, 1)
+            item_host = self.table.item(row, 2)
+            item_status = self.table.item(row, 0)
 
-    def _on_status_filter_changed(self, status):
-        """Filter by status."""
-        status_map = {"All": "all", "Online": "online", "Offline": "unreachable", "New": "new"}
-        self.proxy.set_filter_status(status_map.get(status, "all"))
+            if item_status is None:
+                continue
+
+            ip_text = item_ip.text().lower() if item_ip else ""
+            host_text = item_host.text().lower() if item_host else ""
+
+            row_status = item_status.data(Qt.UserRole) or ""
+            if status != "all" and row_status != status:
+                self.table.setRowHidden(row, True)
+                continue
+
+            if search and search not in ip_text and search not in host_text:
+                self.table.setRowHidden(row, True)
+                continue
+
+            self.table.setRowHidden(row, False)
 
     def _on_row_clicked(self, item):
-        """Emit device_selected when a row is clicked."""
         row = item.row()
         device = self._get_device_from_row(row)
         if device:
             self.device_selected.emit(device)
 
     def _on_row_double_clicked(self, item):
-        """Emit device_double_clicked when a row is double-clicked."""
         row = item.row()
         device = self._get_device_from_row(row)
         if device:
             self.device_double_clicked.emit(device)
 
     def _get_device_from_row(self, row):
-        """Extract device dict from a table row."""
         try:
             status_item = self.table.item(row, 0)
             ip_item = self.table.item(row, 1)
-            hostname_item = self.table.item(row, 2)
-            mac_item = self.table.item(row, 3)
-            vendor_item = self.table.item(row, 4)
-            first_seen_item = self.table.item(row, 5)
-            last_seen_item = self.table.item(row, 6)
-
-            if not all([ip_item, mac_item]):
+            if not ip_item:
                 return None
-
-            return {
-                "status": status_item.text(),
-                "ip": ip_item.text(),
-                "hostname": hostname_item.text() if hostname_item else "",
-                "mac": mac_item.text(),
-                "vendor": vendor_item.text() if vendor_item else "",
-                "first_seen": first_seen_item.text() if first_seen_item else "",
-                "last_seen": last_seen_item.text() if last_seen_item else "",
-            }
+            device = ip_item.data(Qt.UserRole)
+            if not device:
+                return None
+            device = dict(device)
+            if status_item:
+                device["status"] = status_item.data(Qt.UserRole) or "new"
+            return device
         except Exception:
             return None
 
     def set_devices(self, devices):
-        """
-        Populate the table with device data.
-        
-        devices: dict of {ip: device_dict} with optional 'status' key.
-        """
+        """Populate the table. devices: dict of {ip: device_dict}."""
+        # Clear
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
 
         for ip, device in devices.items():
@@ -223,47 +180,50 @@ class DeviceTable(QWidget):
             self.table.insertRow(row)
 
             status = device.get("status", "new")
-            color = StatusDelegate.color(status)
+            color = status_color(status)
 
-            # Status column — colored dot using text color
-            dot = "●" if status != "new" else "◼"
+            # Status column
+            dot = "●" if status != "new" else "○"
             status_item = QTableWidgetItem(dot)
             status_item.setForeground(color)
             status_item.setTextAlignment(Qt.AlignCenter)
-            status_item.setData(Qt.UserRole, status)  # Store raw status
+            status_item.setData(Qt.UserRole, status)
             self.table.setItem(row, 0, status_item)
 
-            # IP
-            self.table.setItem(row, 1, QTableWidgetItem(device.get("ip", "")))
+            # IP — store full device in UserRole for click retrieval
+            ip_item = QTableWidgetItem(device.get("ip", ""))
+            ip_item.setData(Qt.UserRole, dict(device))
+            self.table.setItem(row, 1, ip_item)
 
             # Hostname
             self.table.setItem(row, 2, QTableWidgetItem(device.get("hostname", "-")))
-
             # MAC
             self.table.setItem(row, 3, QTableWidgetItem(device.get("mac", "-")))
-
             # Vendor
             self.table.setItem(row, 4, QTableWidgetItem(device.get("vendor", "-")))
-
             # First seen
             self.table.setItem(row, 5, QTableWidgetItem(device.get("first_seen", "")))
-
             # Last seen
             self.table.setItem(row, 6, QTableWidgetItem(device.get("last_seen", "")))
 
-        # Auto-resize columns to content
-        for col in range(1, 7):
-            self.table.resizeColumnToContents(col)
+        # Re-enable sorting and apply current indicator
+        self.table.setSortingEnabled(True)
+        header = self.table.horizontalHeader()
+        col = header.sortIndicatorSection()
+        order = header.sortIndicatorOrder()
+        if col >= 0:
+            self.table.sortByColumn(col, order)
+
+        # Apply current filters
+        self._filter()
 
     def get_selected_device(self):
-        """Get the currently selected device dict, or None."""
-        current_row = self.table.currentRow()
-        if current_row < 0:
+        row = self.table.currentRow()
+        if row < 0:
             return None
-        return self._get_device_from_row(current_row)
+        return self._get_device_from_row(row)
 
     def get_unreachable_count(self):
-        """Count devices with unreachable status."""
         count = 0
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 0)
