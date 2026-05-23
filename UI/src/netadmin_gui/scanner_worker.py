@@ -6,6 +6,7 @@ All MCP server functions are async, so we use asyncio.run() to execute them
 synchronously within the worker thread.
 """
 import asyncio
+import json
 from PySide6.QtCore import QThread, Signal, QObject
 
 
@@ -43,8 +44,9 @@ def run_scan(config, signals):
             subnet = None
 
         signals.progress.emit(30, f"Scanning {subnet or 'auto-detected subnet'}...")
-        # server.scan_network is async — use asyncio.run() to execute it
-        result = asyncio.run(scan_network(subnet=subnet, resolve_names=resolve))
+        # server.scan_network is async and returns a JSON string
+        raw = asyncio.run(scan_network(subnet=subnet, resolve_names=resolve))
+        result = json.loads(raw) if isinstance(raw, str) else raw
         signals.progress.emit(70, "Processing results...")
 
         devices = {}

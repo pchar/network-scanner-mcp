@@ -8,7 +8,8 @@ Shows scanned devices with sortable columns and color-coded status:
 """
 from PySide6.QtWidgets import (
     QTableWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QComboBox, QHeaderView, QApplication, QLabel
+    QLineEdit, QComboBox, QHeaderView, QApplication, QLabel,
+    QTableWidgetItem,
 )
 from PySide6.QtGui import QColor, QIcon, QKeyEvent
 from PySide6.QtCore import Qt, Signal, QSortFilterProxyModel

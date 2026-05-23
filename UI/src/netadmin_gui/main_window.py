@@ -200,6 +200,10 @@ class MainWindow(QMainWindow):
 
     def _on_scan_complete(self, new_devices):
         """Process scan completion and update the UI."""
+        # compute_device_status expects a list of dicts, worker emits dict{ip:dev}
+        if isinstance(new_devices, dict):
+            new_devices = list(new_devices.values())
+
         self.log_panel.log_success(f"Scan complete: {len(new_devices)} devices found")
 
         # Compute status for each device
