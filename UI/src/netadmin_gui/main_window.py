@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QApplication, QStyleFactory,
 )
 from PySide6.QtGui import QFont, QIcon, QPalette, QColor
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 
 from .widgets.device_table import DeviceTable
 from .widgets.device_detail import DeviceDetail
@@ -49,8 +49,6 @@ class MainWindow(QMainWindow):
 
         # ── State ──
         self.devices = {}           # {ip: device_dict} with status
-        self.scan_timer = QTimer()
-        self.scan_timer.timeout.connect(self._on_timer_scan)
 
         # ── Build UI ──
         self._build_menu_bar()
@@ -94,9 +92,6 @@ class MainWindow(QMainWindow):
 
         # Connect toolbar signals
         self.toolbar.scan_requested.connect(self._on_scan)
-        self.toolbar.toggle_continuous.connect(self._on_toggle_continuous)
-        self.toolbar.clean_requested.connect(self._on_clean)
-        self.toolbar.auto_detect_requested.connect(self._on_auto_detect_subnet)
 
     def _build_central_widget(self):
         """Build the central widget with split panes."""
@@ -149,11 +144,7 @@ class MainWindow(QMainWindow):
 
     def _apply_interface_config(self):
         """Populate interface list from system."""
-        try:
-            interfaces = scanner_tools.get_available_interfaces()
-            self.toolbar.update_interface_list(interfaces)
-        except Exception:
-            pass
+        # No longer needed — toolbar has no interface selector
 
     # ── Scan Workflow ──────────────────────────────────────────────────────
 
@@ -164,7 +155,13 @@ class MainWindow(QMainWindow):
 
     def _execute_scan(self):
         """Execute the scan using a background thread."""
-        config = self.toolbar.get_config()
+        config = {
+            "subnet": None,
+            "interface": "en0",
+            "scan_depth": "quick",
+            "auto_resolve": True,
+            "interval": 0,
+        }
 
         # Save current settings
         self.settings["subnet"] = config["subnet"]
@@ -193,16 +190,8 @@ class MainWindow(QMainWindow):
         self._scan_thread.started.connect(_do_scan)
         # When thread finishes, clean up thread
         self._scan_thread.finished.connect(self._scan_thread.deleteLater)
-        # Re-enable buttons when done
-        def _on_done():
-            self.toolbar.set_scan_button_enabled(True)
-            if self._is_continuous:
-                # Schedule next scan based on interval
-                interval = self.settings.get("interval", 0)
-                if interval > 0:
-                    self._scan_timer.start(interval * 1000)
-        self._scan_thread.finished.connect(_on_done)
-
+        # Re-enable button when done
+        self._scan_thread.finished.connect(self.toolbar.set_scan_button_enabled)
         self._scan_thread.start()
 
     def _on_scan_progress(self, percent, message):
@@ -237,20 +226,10 @@ class MainWindow(QMainWindow):
         # Re-enable scan button
         self.toolbar.set_scan_button_enabled(True)
 
-        # Update interval timer
-        interval = self.settings.get("interval", 0)
-        if interval > 0:
-            self.scan_timer.start(interval * 1000)
-
     def _on_scan_error(self, error_msg):
         """Handle scan errors."""
         self.log_panel.log_error(f"Scan error: {error_msg}")
         self.toolbar.set_scan_button_enabled(True)
-
-    def _on_timer_scan(self):
-        """Auto-scan triggered by timer."""
-        self.log_panel.log_info("Auto-scan triggered by timer")
-        self._execute_scan()
 
     def _update_counts(self):
         """Update the stats label with current counts."""
@@ -258,7 +237,6 @@ class MainWindow(QMainWindow):
         offline = sum(1 for d in self.devices.values() if d.get("status") == "unreachable")
         new_count = sum(1 for d in self.devices.values() if d.get("status") == "new")
         self.toolbar.set_device_counts(total, offline, new_count)
-        self.toolbar.set_offline_count(offline)
 
     # ── Cleanup ────────────────────────────────────────────────────────────
 
@@ -342,37 +320,6 @@ class MainWindow(QMainWindow):
         """Start port scan on a device."""
         self.log_panel.log_info(f"Port scanning {target_ip}...")
         self.log_panel.log_info("Port scanning requires additional tool implementation")
-
-    # ── Continuous Scan Control ────────────────────────────────────────────
-
-    def _on_toggle_continuous(self, running):
-        """Handle start/stop continuous scan toggle."""
-        if running:
-            self.log_panel.log_info("Continuous scanning STARTED")
-        else:
-            self.scan_timer.stop()
-            self.log_panel.log_info("Continuous scanning STOPPED")
-
-    def _on_auto_detect_subnet(self, interface):
-        """Auto-detect the subnet for the given interface."""
-        self.log_panel.log_info(f"Auto-detecting subnet on {interface}...")
-        try:
-            import netifaces
-            addrs = netifaces.ifaddresses(interface)
-            ipv4 = addrs.get(netifaces.AF_INET, [])
-            if ipv4:
-                addr = ipv4[0]['addr']
-                netmask = ipv4[0]['netmask']
-                import ipaddress
-                iface = ipaddress.IPv4Interface(f"{addr}/{netmask}")
-                network = iface.network
-                subnet = str(network)
-                self.toolbar.le_subnet.setText(subnet)
-                self.log_panel.log_success(f"Detected subnet: {subnet}")
-            else:
-                self.log_panel.log_warn(f"No IPv4 address found on {interface}")
-        except Exception as e:
-            self.log_panel.log_error(f"Auto-detect failed: {e}")
 
     # ── UI Helpers ─────────────────────────────────────────────────────────
 
