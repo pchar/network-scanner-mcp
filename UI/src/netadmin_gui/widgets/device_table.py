@@ -75,9 +75,9 @@ class DeviceTable(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
 
-        # Show sort arrows; custom handler toggles direction on click
-        self.table.horizontalHeader().setSortIndicatorShown(True)
-        self.table.horizontalHeader().setSortIndicator(1, Qt.AscendingOrder)
+        # Custom header sorting via sectionClicked
+        self._sort_col = 1
+        self._sort_asc = True
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_sorted)
 
         # Row click
@@ -90,15 +90,15 @@ class DeviceTable(QWidget):
         """Toggle sort direction on header click."""
         if column == 0:
             return
-        header = self.table.horizontalHeader()
-        current = header.sortIndicatorSection()
-        order = header.sortIndicatorOrder()
-        if current == column:
-            order = Qt.DescendingOrder if order == Qt.AscendingOrder else Qt.AscendingOrder
+        if self._sort_col == column:
+            self._sort_asc = not self._sort_asc
         else:
-            order = Qt.AscendingOrder
+            self._sort_col = column
+            self._sort_asc = True
+        order = Qt.AscendingOrder if self._sort_asc else Qt.DescendingOrder
         self.table.sortByColumn(column, order)
-        header.setSortIndicator(column, order)
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self.table.horizontalHeader().setSortIndicator(column, order)
 
     def _filter(self):
         """Hide rows that don't match search/status filters."""
@@ -187,8 +187,8 @@ class DeviceTable(QWidget):
             self.table.setItem(row, 5, QTableWidgetItem(device.get("first_seen", "")))
             self.table.setItem(row, 6, QTableWidgetItem(device.get("last_seen", "")))
 
-        # Restore sorting and re-apply the current sort indicator
-        self.table.setSortingEnabled(True)
+        # Re-apply the current sort indicator
+        self.table.setSortingEnabled(False)
         header = self.table.horizontalHeader()
         col = header.sortIndicatorSection()
         order = header.sortIndicatorOrder()
