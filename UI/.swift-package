@@ -1,0 +1,5 @@
+{
+  "name": "network-scanner-app",
+  "productName": "Network Scanner",
+  "swift": "5.9"
+}

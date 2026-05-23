@@ -1,0 +1,23 @@
+ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 
+X                          TOOLBAR                                 X 
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                                             X 
+X                                                                  X 
+X     TABLE VIEW sorted by column                                  X
+X                                                                  X 
+X                                                                  X 
+X    X   ip     X  hostname  X NIC CARD    X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+X    X          X            X             X                       X 
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+X                                                                  X 
+X                    LOG DEBGU WINDOW                              X 
+X                                                                  X 
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 
