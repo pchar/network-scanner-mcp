@@ -223,11 +223,10 @@ class DeviceTable(QWidget):
 
             status = device.get("status", "new")
             color = StatusDelegate.color(status)
-            emoji = StatusDelegate.emoji(status)
-            status_text = StatusDelegate.status_text(status)
 
-            # Status column (colored dot)
-            status_item = QTableWidgetItem(emoji)
+            # Status column — colored dot using text color
+            dot = "●" if status != "new" else "◼"
+            status_item = QTableWidgetItem(dot)
             status_item.setForeground(color)
             status_item.setTextAlignment(Qt.AlignCenter)
             status_item.setData(Qt.UserRole, status)  # Store raw status

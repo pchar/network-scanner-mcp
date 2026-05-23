@@ -232,11 +232,7 @@ class MainWindow(QMainWindow):
         self.toolbar.set_scan_button_enabled(True)
 
     def _update_counts(self):
-        """Update the stats label with current counts."""
-        total = len(self.devices)
-        offline = sum(1 for d in self.devices.values() if d.get("status") == "unreachable")
-        new_count = sum(1 for d in self.devices.values() if d.get("status") == "new")
-        self.toolbar.set_device_counts(total, offline, new_count)
+        """Update counts — currently a no-op since the toolbar has no stats label."""
 
     # ── Cleanup ────────────────────────────────────────────────────────────
 

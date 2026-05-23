@@ -1,7 +1,7 @@
 """
 Toolbar - Minimal toolbar with just a Start button.
 """
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton
 from PySide6.QtCore import Signal
 
 
@@ -39,11 +39,6 @@ class Toolbar(QWidget):
         )
         layout.addWidget(self.btn_scan)
 
-        # ── Stats ──
-        self.lbl_stats = QLabel("Devices: 0  |  Offline: 0  |  New: 0")
-        self.lbl_stats.setStyleSheet("font-family: Menlo, monospace; font-size: 11px; color: #666;")
-        layout.addWidget(self.lbl_stats, stretch=1)
-
     def _on_scan(self):
         self.scan_requested.emit({
             "subnet": None,
@@ -52,11 +47,6 @@ class Toolbar(QWidget):
             "auto_resolve": True,
             "interval": 0,
         })
-
-    def set_device_counts(self, total, offline, new_count):
-        self.lbl_stats.setText(
-            f"Devices: {total}  |  Offline: {offline}  |  New: {new_count}"
-        )
 
     def set_scan_button_enabled(self, enabled):
         self.btn_scan.setEnabled(enabled)
