@@ -1,7 +1,7 @@
 """
 Device Table - Main table view with status indicators and sorting.
 
-Uses QTableWidget with native sortByColumn() — no custom model needed.
+Uses QTableWidget with custom sortByColumn() — no custom model needed.
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
@@ -12,23 +12,12 @@ from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt, Signal
 
 
-# ─── Status helpers ─────────────────────────────────────────────────────────
-
-
 def status_color(status):
     return {
         "online": QColor("#27ae60"),
         "unreachable": QColor("#e74c3c"),
         "new": QColor("#95a5a6"),
     }.get(status, QColor("#95a5a6"))
-
-
-def status_text(status):
-    return {
-        "online": "Online",
-        "unreachable": "Offline",
-        "new": "New",
-    }.get(status, status)
 
 
 # ─── Device Table Widget ────────────────────────────────────────────────────
@@ -86,10 +75,10 @@ class DeviceTable(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
 
-        # Sortable: header click toggles sort direction
+        # Show sort arrows; custom handler toggles direction on click
         self.table.horizontalHeader().setSortIndicatorShown(True)
         self.table.horizontalHeader().setSortIndicator(1, Qt.AscendingOrder)
-        self.table.horizontalHeader().sectionClicked.connect(self._on_sort)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_header_sorted)
 
         # Row click
         self.table.itemClicked.connect(self._on_row_clicked)
@@ -97,12 +86,9 @@ class DeviceTable(QWidget):
 
         layout.addWidget(self.table)
 
-        # Internal state for filtering
-        self._all_rows = []  # store all device dicts (or None to show all)
-
-    def _on_sort(self, column):
+    def _on_header_sorted(self, column):
         """Toggle sort direction on header click."""
-        if column == 0:  # Status column: not sortable
+        if column == 0:
             return
         header = self.table.horizontalHeader()
         current = header.sortIndicatorSection()
@@ -171,7 +157,7 @@ class DeviceTable(QWidget):
 
     def set_devices(self, devices):
         """Populate the table. devices: dict of {ip: device_dict}."""
-        # Clear
+        # Disable auto-sort while populating
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
 
@@ -195,18 +181,13 @@ class DeviceTable(QWidget):
             ip_item.setData(Qt.UserRole, dict(device))
             self.table.setItem(row, 1, ip_item)
 
-            # Hostname
             self.table.setItem(row, 2, QTableWidgetItem(device.get("hostname", "-")))
-            # MAC
             self.table.setItem(row, 3, QTableWidgetItem(device.get("mac", "-")))
-            # Vendor
             self.table.setItem(row, 4, QTableWidgetItem(device.get("vendor", "-")))
-            # First seen
             self.table.setItem(row, 5, QTableWidgetItem(device.get("first_seen", "")))
-            # Last seen
             self.table.setItem(row, 6, QTableWidgetItem(device.get("last_seen", "")))
 
-        # Re-enable sorting and apply current indicator
+        # Restore sorting and re-apply the current sort indicator
         self.table.setSortingEnabled(True)
         header = self.table.horizontalHeader()
         col = header.sortIndicatorSection()
