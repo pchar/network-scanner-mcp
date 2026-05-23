@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QSplitter, QMessageBox, QMenuBar, QMenu,
     QApplication, QStyleFactory,
 )
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QIcon, QPalette, QColor
 from PySide6.QtCore import Qt, QTimer
 
 from .widgets.device_table import DeviceTable
@@ -27,8 +27,10 @@ from .widgets.device_detail import DeviceDetail
 from .widgets.log_panel import LogPanel
 from .widgets.toolbar import Toolbar
 from .settings import DeviceStore, SettingsStore, compute_device_status, get_status_emoji
-from .scanner_worker import ScannerWorker
+from .scanner_worker import ScanWorkerSignals, PingWorkerSignals, HostnameWorkerSignals, run_scan, run_ping, run_hostname
 from . import tools as scanner_tools
+
+from PySide6.QtCore import QThread
 
 
 class MainWindow(QMainWindow):
@@ -87,13 +89,14 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._show_about)
 
     def _build_toolbar(self):
-        """Create and add the toolbar."""
+        """Create the toolbar widget."""
         self.toolbar = Toolbar()
-        self.addToolBar(self.toolbar)
 
         # Connect toolbar signals
         self.toolbar.scan_requested.connect(self._on_scan)
+        self.toolbar.toggle_continuous.connect(self._on_toggle_continuous)
         self.toolbar.clean_requested.connect(self._on_clean)
+        self.toolbar.auto_detect_requested.connect(self._on_auto_detect_subnet)
 
     def _build_central_widget(self):
         """Build the central widget with split panes."""
@@ -103,6 +106,9 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
+
+        # ── Toolbar at top ──
+        main_layout.addWidget(self.toolbar)
 
         # ── Splitter: Table + Detail Sidebar ──
         splitter = QSplitter(Qt.Horizontal)
@@ -157,7 +163,7 @@ class MainWindow(QMainWindow):
             self._execute_scan()
 
     def _execute_scan(self):
-        """Execute the scan using the worker thread."""
+        """Execute the scan using a background thread."""
         config = self.toolbar.get_config()
 
         # Save current settings
@@ -170,14 +176,34 @@ class MainWindow(QMainWindow):
         self.toolbar.set_scan_button_enabled(False)
         self.log_panel.log_info(f"Starting scan: interface={config['interface']}, resolve={config['auto_resolve']}")
 
-        # Create and run worker
-        worker = ScannerWorker(config)
-        worker.started.connect(self.log_panel.log_info)
-        worker.progress.connect(self._on_scan_progress)
-        worker.completed.connect(self._on_scan_complete)
-        worker.error.connect(self._on_scan_error)
+        # Create thread + signals (QObject pattern — signals work correctly)
+        self._scan_thread = QThread()
+        signals = ScanWorkerSignals()
 
-        QThreadPool.globalInstance().start(worker)
+        # Connect signals BEFORE moving to thread
+        signals.started.connect(self.log_panel.log_info)
+        signals.progress.connect(self._on_scan_progress)
+        signals.completed.connect(self._on_scan_complete)
+        signals.error.connect(self._on_scan_error)
+
+        # Connect thread started → run scan
+        def _do_scan():
+            run_scan(config, signals)
+
+        self._scan_thread.started.connect(_do_scan)
+        # When thread finishes, clean up thread
+        self._scan_thread.finished.connect(self._scan_thread.deleteLater)
+        # Re-enable buttons when done
+        def _on_done():
+            self.toolbar.set_scan_button_enabled(True)
+            if self._is_continuous:
+                # Schedule next scan based on interval
+                interval = self.settings.get("interval", 0)
+                if interval > 0:
+                    self._scan_timer.start(interval * 1000)
+        self._scan_thread.finished.connect(_on_done)
+
+        self._scan_thread.start()
 
     def _on_scan_progress(self, percent, message):
         """Handle scan progress updates."""
@@ -279,9 +305,14 @@ class MainWindow(QMainWindow):
     def _on_ping(self, target_ip):
         """Ping a selected device."""
         self.log_panel.log_info(f"Pinging {target_ip}...")
-        worker = ScannerWorker.PingWorker(target_ip, count=3)
-        worker.result.connect(self._on_ping_result)
-        QThreadPool.globalInstance().start(worker)
+        thread = QThread()
+        signals = PingWorkerSignals()
+        signals.result.connect(self._on_ping_result)
+        signals.result.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        signals.result.connect(signals.deleteLater)
+        thread.started.connect(lambda: run_ping(target_ip, 3, signals))
+        thread.start()
 
     def _on_ping_result(self, ip, result):
         """Handle ping result."""
@@ -294,9 +325,14 @@ class MainWindow(QMainWindow):
     def _on_hostname(self, target_ip):
         """Resolve hostname for a device."""
         self.log_panel.log_info(f"Resolving hostname for {target_ip}...")
-        worker = ScannerWorker.HostnameWorker(target_ip)
-        worker.result.connect(self._on_hostname_result)
-        QThreadPool.globalInstance().start(worker)
+        thread = QThread()
+        signals = HostnameWorkerSignals()
+        signals.result.connect(self._on_hostname_result)
+        signals.result.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        signals.result.connect(signals.deleteLater)
+        thread.started.connect(lambda: run_hostname(target_ip, signals))
+        thread.start()
 
     def _on_hostname_result(self, ip, hostname):
         """Handle hostname resolution result."""
@@ -306,6 +342,37 @@ class MainWindow(QMainWindow):
         """Start port scan on a device."""
         self.log_panel.log_info(f"Port scanning {target_ip}...")
         self.log_panel.log_info("Port scanning requires additional tool implementation")
+
+    # ── Continuous Scan Control ────────────────────────────────────────────
+
+    def _on_toggle_continuous(self, running):
+        """Handle start/stop continuous scan toggle."""
+        if running:
+            self.log_panel.log_info("Continuous scanning STARTED")
+        else:
+            self.scan_timer.stop()
+            self.log_panel.log_info("Continuous scanning STOPPED")
+
+    def _on_auto_detect_subnet(self, interface):
+        """Auto-detect the subnet for the given interface."""
+        self.log_panel.log_info(f"Auto-detecting subnet on {interface}...")
+        try:
+            import netifaces
+            addrs = netifaces.ifaddresses(interface)
+            ipv4 = addrs.get(netifaces.AF_INET, [])
+            if ipv4:
+                addr = ipv4[0]['addr']
+                netmask = ipv4[0]['netmask']
+                import ipaddress
+                iface = ipaddress.IPv4Interface(f"{addr}/{netmask}")
+                network = iface.network
+                subnet = str(network)
+                self.toolbar.le_subnet.setText(subnet)
+                self.log_panel.log_success(f"Detected subnet: {subnet}")
+            else:
+                self.log_panel.log_warn(f"No IPv4 address found on {interface}")
+        except Exception as e:
+            self.log_panel.log_error(f"Auto-detect failed: {e}")
 
     # ── UI Helpers ─────────────────────────────────────────────────────────
 

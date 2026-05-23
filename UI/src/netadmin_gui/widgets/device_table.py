@@ -253,7 +253,7 @@ class DeviceTable(QWidget):
 
         # Auto-resize columns to content
         for col in range(1, 7):
-            self.table.horizontalHeader().resizeSection(col, QHeaderView.ResizeToContents)
+            self.table.resizeColumnToContents(col)
 
     def get_selected_device(self):
         """Get the currently selected device dict, or None."""
