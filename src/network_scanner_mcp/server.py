@@ -1323,7 +1323,18 @@ def main():
     logger.info(f"Interface: {INTERFACE}")
     logger.info(f"Data directory: {DATA_DIR}")
     logger.info(f"Cluster nodes configured: {len(CLUSTER_NODES)}")
-    mcp.run(transport="stdio")
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    host = os.environ.get("MCP_HOST", "0.0.0.0")
+    port = int(os.environ.get("MCP_PORT", "8000"))
+    if transport == "http":
+        logger.info(f"Running HTTP server on {host}:{port}")
+        mcp.run(transport="http", host=host, port=port)
+    elif transport == "sse":
+        logger.info(f"Running SSE server on {host}:{port}")
+        mcp.run(transport="sse", host=host, port=port)
+    else:
+        logger.info(f"Running stdio server")
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
