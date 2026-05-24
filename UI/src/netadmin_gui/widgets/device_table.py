@@ -86,6 +86,18 @@ class DeviceTable(QWidget):
 
         layout.addWidget(self.table)
 
+    def _sort_key(self, text):
+        """Sort key that handles IP addresses numerically."""
+        if not text or text == "-":
+            return (2, 0, "")
+        parts = text.strip().split(".")
+        if len(parts) == 4 and all(p.isdigit() for p in parts):
+            return (0, tuple(int(p) for p in parts), "")
+        try:
+            return (1, float(text), "")
+        except ValueError:
+            return (2, 0, text.lower())
+
     def _on_header_sorted(self, column):
         """Toggle sort direction on header click."""
         if column == 0:
@@ -96,7 +108,44 @@ class DeviceTable(QWidget):
             self._sort_col = column
             self._sort_asc = True
         order = Qt.AscendingOrder if self._sort_asc else Qt.DescendingOrder
-        self.table.sortByColumn(column, order)
+
+        # Extract all rows as (items, device_data) tuples
+        rows = []
+        for r in range(self.table.rowCount()):
+            items = [self.table.item(r, c) for c in range(self.table.columnCount())]
+            device_data = items[1].data(Qt.UserRole) if items[1] else None
+            rows.append((items, device_data))
+
+        # Sort with custom key
+        def sort_key(row):
+            item = row[0][column]
+            return self._sort_key(item.text()) if item else (2, 0, "")
+        rows.sort(key=sort_key, reverse=(order == Qt.DescendingOrder))
+
+        # Rebuild table
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
+
+        for items, device_data in reversed(rows):
+            self.table.insertRow(0)  # insert at top, reversed iteration keeps order
+            for c, item in enumerate(items):
+                if item is None:
+                    continue
+                text = item.text()
+                if c == 0:  # status
+                    status_item = QTableWidgetItem(text)
+                    status_item.setForeground(item.foreground())
+                    status_item.setTextAlignment(Qt.AlignCenter)
+                    status_item.setData(Qt.UserRole, item.data(Qt.UserRole))
+                    self.table.setItem(0, c, status_item)
+                elif c == 1:  # IP
+                    ip_item = QTableWidgetItem(text)
+                    ip_item.setData(Qt.UserRole, dict(device_data))
+                    self.table.setItem(0, c, ip_item)
+                else:
+                    self.table.setItem(0, c, QTableWidgetItem(text))
+
+        self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setSortIndicatorShown(True)
         self.table.horizontalHeader().setSortIndicator(column, order)
 
@@ -187,13 +236,9 @@ class DeviceTable(QWidget):
             self.table.setItem(row, 5, QTableWidgetItem(device.get("first_seen", "")))
             self.table.setItem(row, 6, QTableWidgetItem(device.get("last_seen", "")))
 
-        # Re-apply the current sort indicator
+        # Re-apply the current sort indicator using our custom sort
         self.table.setSortingEnabled(False)
-        header = self.table.horizontalHeader()
-        col = header.sortIndicatorSection()
-        order = header.sortIndicatorOrder()
-        if col >= 0:
-            self.table.sortByColumn(col, order)
+        self._on_header_sorted(self._sort_col)
 
         # Apply current filters
         self._filter()
